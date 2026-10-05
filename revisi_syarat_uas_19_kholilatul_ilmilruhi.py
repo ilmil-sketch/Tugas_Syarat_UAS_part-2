@@ -2,7 +2,7 @@ import streamlit as st
 import random
 import time
 
-# Set konfigurasi halaman web agar melebar otomatis sesuai mockup
+# Set konfigurasi halaman web
 st.set_page_config(page_title="Analisis Algoritma", layout="wide")
 
 # ==========================================
@@ -104,13 +104,16 @@ def linear_search_produk_banyak(arr, target, kunci_pencarian):
         if isinstance(nilai_sekarang, str):
             nilai_sekarang = nilai_sekarang.lower()
             
-        if nilai_sekarang == target:
+        if isinstance(target, str) and isinstance(nilai_sekarang, str):
+            if target in nilai_sekarang:
+                hasil_indeks.append(i)
+        elif nilai_sekarang == target:
             hasil_indeks.append(i)
             
     return hasil_indeks, steps
 
 # ==========================================
-# 3. GENERATOR DATABASE PRODUK (REVISI: UPGRADE 200 DATA)
+# 3. GENERATOR DATABASE PRODUK UNIK
 # ==========================================
 nama_mentah = [
     "Pita Satin 2cm Grid", "Pita Organza Aesthetic", "Pita Rami Vintage", "Buket Pita",
@@ -126,22 +129,16 @@ category_mapping = {
     "Stiker Washi Tape Jurnal": "Scrapbook", "Kertas Vintage Scrapbook": "Scrapbook", "Buku Jurnal Kulit Kustom": "Scrapbook", "Stampel Kayu Estetik": "Scrapbook", "Lilin Aromaterapi Ukir": "Scrapbook"
 }
 
-if 'database_gudang' not in st.session_state:
+def generate_database():
     random.seed(42)
     gudang_temp = []
-    
-    # REVISI PERTAMA: Loop dinaikkan dari 100 menjadi 200 baris data unik
     for i in range(200):
         id_barang = i + 101
-        
         pilihan_nama = random.choice(nama_mentah)
         nama_barang_unik = f"{pilihan_nama} V.{id_barang}" 
-        
-        # Variasi harga disesuaikan agar menyebar rata di rentang 200 data (Rp 10.000 - Rp 300.000)
         harga_barang = random.randint(2, 60) * 5000 
         kategori_barang = category_mapping.get(pilihan_nama, "Scrapbook")
         stok_barang = random.randint(10, 150)
-        
         status_laris = "🔥 Paling Laris" if stok_barang < 40 else "🟢 Standar"
         
         gudang_temp.append({
@@ -152,9 +149,14 @@ if 'database_gudang' not in st.session_state:
             "Stok": stok_barang,
             "Penjualan": status_laris
         })
-    st.session_state.database_gudang = gudang_temp
+    return gudang_temp
 
-db_aktif = st.session_state.database_gudang
+if 'database_gudang' not in st.session_state:
+    st.session_state.database_gudang = generate_database()
+
+def reset_pencarian():
+    if 'last_search' in st.session_state:
+        del st.session_state['last_search']
 
 # ==========================================
 # 4. STRUKTUR INTERFACE KIRI (SIDEBAR CONTROL)
@@ -162,15 +164,20 @@ db_aktif = st.session_state.database_gudang
 with st.sidebar:
     st.header("⚙️ Pengaturan")
     
-    # REVISI KEDUA: Slider ditingkatkan max_value menjadi 200 dan default value awal di set ke 200
-    jumlah_produk = st.slider("Jumlah produk di gudang:", min_value=10, max_value=200, value=200, step=10)
+    jumlah_produk = st.slider(
+        "Jumlah produk di gudang:", 
+        min_value=10, max_value=200, value=200, step=10,
+        on_change=reset_pencarian
+    )
+    
     db_aktif = st.session_state.database_gudang[:jumlah_produk]
     
     st.write("---")
     st.header("Filter Kategori")
     kategori_terpilih = st.radio(
         "Tampilkan kategori produk:",
-        ("Semua Kategori", "Aneka Pita", "Kawat Bulu", "Pop-Up Paper Craft", "Scrapbook")
+        ("Semua Kategori", "Aneka Pita", "Kawat Bulu", "Pop-Up Paper Craft", "Scrapbook"),
+        on_change=reset_pencarian
     )
     
     if kategori_terpilih == "Aneka Pita":
@@ -186,21 +193,30 @@ with st.sidebar:
     st.header("Kategori Kunci Data")
     kunci_data = st.selectbox(
         "Pilih Kunci Data Operasi:",
-        ("Nama Produk", "Harga", "Kategori")
+        ("Nama Produk", "Harga", "Kategori"),
+        on_change=reset_pencarian
     )
 
     st.header("Pilih Algoritma Pencarian")
     algo_pencarian = st.radio(
         "Pilih algoritma yang ingin digunakan:",
-        ("Linear Search", "Binary Search")
+        ("Linear Search", "Binary Search"),
+        on_change=reset_pencarian
     )
     
     st.write("---")
     st.header("Kondisi Data Gudang")
     kondisi_gudang = st.radio(
         "Bagaimana kondisi data saat ini?",
-        ("Data Acak (Unsorted)", "Data Terurut (Sorted)")
+        ("Data Acak (Unsorted)", "Data Terurut (Sorted)"),
+        on_change=reset_pencarian
     )
+    
+    st.write("---")
+    if st.button("🔄 Reset / Ulangi Semua Data", use_container_width=True):
+        st.session_state.database_gudang = generate_database()
+        reset_pencarian()
+        st.rerun()
 
 # ==========================================
 # 5. STRUKTUR PANEL UTAMA (KANAN)
@@ -234,30 +250,42 @@ if kondisi_gudang == "Data Terurut (Sorted)":
 # Area Form Cari Produk
 st.header("Cari Produk")
 
+opsi_nama_produk = sorted(list(set([x["Nama Produk"] for x in db_aktif])))
+
 with st.form(key="search_form", clear_on_submit=False):
     st.write(f"Sistem Pencarian Massal berdasarkan `{kunci_data}`")
     
-    placeholder_text = "Contoh: jika nama (Pita Satin, Pop-Up Book), jika harga (15000, 50000)"
-    if kunci_data == "Kategori":
-        placeholder_text = "Ketik: Aneka Pita / Kawat Bulu Craft / Pop-Up Paper Craft / Scrapbook"
-        
-    input_user = st.text_input(
-        f"Masukkan {kunci_data} (Pisahkan dengan tanda koma jika mencari lebih dari 1):", 
-        placeholder=placeholder_text
-    )
+    if kunci_data == "Nama Produk":
+        input_user = st.multiselect(
+            "Pilih/Ketik Nama Produk yang dicari (Bisa pilih lebih dari 1):",
+            options=opsi_nama_produk,
+            placeholder="Klik atau ketik kata kunci nama barang..."
+        )
+        input_user_str = ", ".join(input_user)
+    else:
+        placeholder_text = "Contoh jika harga: (15000, 50000)" if kunci_data == "Harga" else "Ketik: Aneka Pita / Kawat Bulu Craft / Pop-Up Paper Craft / Scrapbook"
+        input_user_str = st.text_input(
+            f"Masukkan {kunci_data} (Pisahkan dengan tanda koma jika mencari lebih dari 1):", 
+            placeholder=placeholder_text
+        )
     
     submit_button = st.form_submit_button(label="Cari Sekarang (ENTER)", use_container_width=True)
 
-# LOGIKA OUTPUT UTAMA
-if submit_button and input_user:
+if submit_button and input_user_str:
+    st.session_state['last_search'] = input_user_str
+
+# TAMPILKAN HASIL PENCARIAN
+if 'last_search' in st.session_state and st.session_state['last_search']:
     st.write("---")
     st.subheader("Laporan Hasil Analisis Pencarian Massal")
     
-    daftar_target = [x.strip() for x in input_user.split(",") if x.strip() != ""]
+    target_input = st.session_state['last_search']
+    daftar_target = [x.strip() for x in target_input.split(",") if x.strip() != ""]
     
     for target_mentah in daftar_target:
         if kunci_data == "Harga":
-            if target_mentah.isdigit(): target = int(target_mentah)
+            if target_mentah.isdigit(): 
+                target = int(target_mentah)
             else:
                 st.error(f"Karakter `{target_mentah}` bukan angka murni! Gagal mencari kategori harga.")
                 continue
@@ -295,12 +323,12 @@ if submit_button and input_user:
                     st.warning("*Analisis Kegagalan: Binary Search gagal mendeteksi target karena Anda mencari di data yang belum diurutkan.*")
             st.write("") 
 
-    if kondisi_gudang == "Data Terurut (Sorted)":
-        st.write("---")
-        st.write("**Tabel Perbandingan Kecepatan Algoritma Pengurutan (Sorting):**")
-        kol_t1, kol_t2 = st.columns(2)
-        with kol_t1: st.metric(label="Bubble Sort Running Time", value=f"{waktu_bubble:.2f} ms")
-        with kol_t2: st.metric(label="Merge Sort Running Time (Rekomendasi Dosen)", value=f"{waktu_merge:.2f} ms")
+if kondisi_gudang == "Data Terurut (Sorted)":
+    st.write("---")
+    st.write("**Tabel Perbandingan Kecepatan Algoritma Pengurutan (Sorting):**")
+    kol_t1, kol_t2 = st.columns(2)
+    with kol_t1: st.metric(label="Bubble Sort Running Time", value=f"{waktu_bubble:.2f} ms")
+    with kol_t2: st.metric(label="Merge Sort Running Time (Rekomendasi Dosen)", value=f"{waktu_merge:.2f} ms")
 
 # Panel Collapse Tampilan Tabel Database Produk
 st.write("---")
@@ -320,22 +348,41 @@ with st.expander("Lihat Semua Data Produk", expanded=True):
     st.dataframe(tabel_nambah, use_container_width=True, hide_index=True)
 
 # ==========================================
-# REVISI 4: EVALUASI BELAJAR (Panel Analisis Kekurangan & Pelajaran Mandiri)
+# 6. PANEL EVALUASI DINAMIS (BERUBAH SESUAI ALGORITMA)
 # ==========================================
 st.write("---")
 with st.container():
-    st.subheader("Catatan Evaluasi Mandiri Mahasiswa (Bahan Belajar UAS)")
+    st.subheader(f"Catatan Evaluasi Dinamis ({algo_pencarian} Active)")
     col_eval1, col_eval2 = st.columns(2)
-    with col_eval1:
-        st.markdown("""
-        **🔍 Apa yang Sudah Berhasil Diperbaiki?**
-        * **Output Cluster Kategori:** Searching tidak lagi langsung berhenti di satu data tunggal, melainkan menyisir area sekitar (*cluster expansion*) untuk mengumpulkan semua nama kategori yang sama menjadi satu laporan utuh.
-        * **Pencegahan Nama Kembar:** Menambahkan identitas nomor seri unik `V.[ID]` di generator data agar baris nama produk tidak ada yang sama persis, membuat pencarian nama menjadi sangat presisi.
-        * **Fitur Penanda Terlaris:** Menambahkan parameter otomatis berbasis sisa stok barang untuk memisahkan produk reguler dan produk **🔥 Paling Laris**.
-        """)
-    with col_eval2:
-        st.markdown("""
-        **⚠️ Komparasi Analisis Teori:**
-        * **Kelemahan Terdeteksi:** Saat kondisi di-set *Data Acak*, algoritma *Binary Search* terbukti mengalami **gagal deteksi total** karena ia melompat ke posisi tengah yang salah, sedangkan *Linear Search* tetap bisa menemukan data walaupun membutuhkan langkah iterasi yang membengkak.
-        * **Optimasi Kecepatan:** *Merge Sort* terbukti memiliki kestabilan *running time* yang jauh lebih konsisten dibandingkan *Bubble Sort* saat menangani visualisasi data dalam jumlah maksimal.
-        """)
+    
+    # KONDISI 1: JIKA ALGORITMA YANG DIPILIH LINEAR SEARCH
+    if algo_pencarian == "Linear Search":
+        with col_eval1:
+            st.markdown("""
+            **🟢 Kelebihan Linear Search:**
+            * **Fleksibel & Anti-Gagal:** Bisa mencari data dalam kondisi apa pun (baik data acak maupun terurut).
+            * **Support Partial Match:** Lebih fleksibel dalam mendeteksi potongan kata kunci.
+            * **Tanpa Syarat Pre-sorting:** Tidak membutuhkan proses pengurutan data di awal.
+            """)
+        with col_eval2:
+            st.markdown("""
+            **🔴 Kekurangan Linear Search:**
+            * **Iterasi Lambat:** Menyeleksi data satu per satu dari awal sampai akhir ($O(N)$).
+            * **Boros Waktu di Data Besar:** Jika posisi data ada di urutan paling akhir atau data sampai ribuan, *running time* membengkak.
+            """)
+            
+    # KONDISI 2: JIKA ALGORITMA YANG DIPILIH BINARY SEARCH
+    else:
+        with col_eval1:
+            st.markdown("""
+            **🟢 Kelebihan Binary Search:**
+            * **Super Cepat ($O(\\log N)$):** Memangkas separuh pencarian di setiap langkahnya.
+            * **Sangat Efisien di Skala Besar:** Makin banyak data, waktu pencariannya tetap sangat instan.
+            * **Cluster Support:** Berhasil dimodifikasi menyisir kanan-kiri untuk kategori massal.
+            """)
+        with col_eval2:
+            st.markdown("""
+            **🔴 Kekurangan Binary Search:**
+            * **Wajib Data Terurut:** Gagal total jika dijalankan pada kondisi *Data Acak (Unsorted)*.
+            * **Strict Target:** Kurang fleksibel jika pencarian dilakukan dengan kata kunci yang sangat acak/sepotong.
+            """)
